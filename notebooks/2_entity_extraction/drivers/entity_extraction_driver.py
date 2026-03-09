@@ -68,7 +68,9 @@ df_amp_match_output = entity_match(df_exact_non_match,
                                    id_level_col=ID_LEVEL_COL,
                                    match_level_col=MATCH_LEVEL_COL,
                                    match_datetime_col=MATCH_DATETIME_COL,
-                                   ref_id_col=RefDataStore.ID_COL)
+                                   ref_id_col=RefDataStore.ID_COL,
+                                   ref_text_col=RefDataStore.TEXT_COL
+                                  )
 
 # Remaining records after entity matching to amp
 df_exact_non_match_less_amp_matches = df_exact_non_match.join(df_amp_match_output.select(ID_COL), ID_COL, 'leftanti')
@@ -86,7 +88,9 @@ df_vmp_match_output = entity_match(df_exact_non_match_less_amp_matches,
                                    id_level_col=ID_LEVEL_COL,
                                    match_level_col=MATCH_LEVEL_COL,
                                    match_datetime_col=MATCH_DATETIME_COL,
-                                   ref_id_col=RefDataStore.ID_COL)
+                                   ref_id_col=RefDataStore.ID_COL,
+                                   ref_text_col=RefDataStore.TEXT_COL
+                                  )
 
 # Remaining records after entity matching to amp and vmp
 df_exact_non_match_less_amp_and_vmp_matches = df_exact_non_match_less_amp_matches.join(df_vmp_match_output.select(ID_COL), ID_COL, 'leftanti')

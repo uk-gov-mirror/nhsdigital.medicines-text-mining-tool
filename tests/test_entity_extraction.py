@@ -167,6 +167,7 @@ def test_join_on_columns_and_filter_max_moieties():
 
 
   schema_df_refdata = StructType([
+    StructField("ref_description", StringType(), True),
     StructField("MOIETY", StringType(), True),
     StructField("MOIETY_2", StringType(), True),
     StructField("MOIETY_3", StringType(), True),
@@ -174,27 +175,28 @@ def test_join_on_columns_and_filter_max_moieties():
     StructField("MOIETY_5", StringType(), True),
   ])
   df_refdata = spark.createDataFrame([
-    Row("Trelegy", None, None, None, None),
-    Row("trelegy", "ellipta", None, None, None),
-    Row("Paracetamol", None, None, None, None),
-    Row("Vitamin", None, None, None, None),
-    Row("vitamin", None, None, None, None),
-    Row("Trelegy", "Paracetamol", None, None, None),
+    Row("dummy", "Trelegy", None, None, None, None),
+    Row("dummy", "trelegy", "ellipta", None, None, None),
+    Row("dummy", "Paracetamol", None, None, None, None),
+    Row("dummy", "Vitamin", None, None, None, None),
+    Row("dummy", "vitamin", None, None, None, None),
+    Row("dummy", "Trelegy", "Paracetamol", None, None, None),
   ], schema=schema_df_refdata)
 
   schema_df_expected = StructType([
     StructField("id", StringType(), False),
     StructField("epma_description", StringType(), False),
+    StructField("ref_description", StringType(), True),
     StructField("MOIETY", StringType(), True),
     StructField("MOIETY_2", StringType(), True),
     StructField("MOIETY_3", StringType(), True),
     StructField("MOIETY_4", StringType(), True),
-    StructField("MOIETY_5", StringType(), True)
+    StructField("MOIETY_5", StringType(), True),
   ])
   df_expected = spark.createDataFrame([
-    ('1', 'Trelegy Ellipta 92 mcg-55 mcg-22 mcg/inh inhalation powder', "trelegy", "ellipta", None, None, None),
-    ('2', 'Vitamin svrthv78 oil', "Vitamin", None, None, None, None),
-    ('2', 'Vitamin svrthv78 oil', "vitamin", None, None, None, None),
+    ('1', 'Trelegy Ellipta 92 mcg-55 mcg-22 mcg/inh inhalation powder', "dummy", "trelegy", "ellipta", None, None, None),
+    ('2', 'Vitamin svrthv78 oil', "dummy", "Vitamin", None, None, None, None),
+    ('2', 'Vitamin svrthv78 oil', "dummy", "vitamin", None, None, None, None),
   ], schema=schema_df_expected)
 
   df_actual = join_on_columns_and_filter_max_moieties(
@@ -202,7 +204,8 @@ def test_join_on_columns_and_filter_max_moieties():
       moiety_join_cols=['MOIETY', 'MOIETY_2', 'MOIETY_3', 'MOIETY_4', 'MOIETY_5'],
       df_refdata=df_refdata,
       id_col='id',
-      text_col='epma_description'
+      text_col='epma_description',
+      ref_text_col='ref_description'
     )
 
   assert compare_results(df_actual, df_expected, join_columns=['epma_description', 'MOIETY'])
@@ -211,12 +214,14 @@ def test_join_on_columns_and_filter_max_moieties():
 
 @suite.add_test
 def test_partial_entity_match():
+  
   schema_df_input = StructType([
-  StructField("epma_id", StringType(), False),
-  StructField("original_epma_description", StringType(), False),
-  StructField("form_in_text", StringType(), False),
-  StructField("epma_description", StringType(), False)
+    StructField("epma_id", StringType(), False),
+    StructField("original_epma_description", StringType(), False),
+    StructField("form_in_text", StringType(), False),
+    StructField("epma_description", StringType(), False)
   ])
+  
   df_input = spark.createDataFrame([
     Row('123', 'Trelegy Ellipta 92 mcg inhalation powder', ' ', 'Trelegy Ellipta 92 mcg inhalation powder'),
     Row('456', 'Vitamin 78 mg oil', ' ', 'Vitamin 78 mg oil'),
@@ -463,16 +468,17 @@ def test_entity_match():
     StructField("SVN_3", StringType(), True),
     StructField("SVU_3", StringType(), True),
     StructField("ref_id", StringType(), False),
+    StructField("ref_description", StringType(), False),
   ])
 
   df_refdata = spark.createDataFrame([
-    Row("Trelegy", None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, "7536"),
-    Row("trelegy", "ellipta", None, None, None, None, None, "20", "ml", None, None, None, None, None, None, None, None, None, None, "120"),
-    Row("trelegy", "ellipta", None, None, None, None, None, "92", "mcg", None, None, None, None, None, None, None, None, None, None, "66"),
-    Row("Vitamin", None, None, None, None, None, None, "78", "mg", None, None, None, None, None, None, None, None, None, None, "8264"),
-    Row("vitamin", None, None, None, None, None, None, "78", "mg", None, None, None, None, None, None, None, None, None, None, "8348"),
-    Row("Paracetamol", None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, "13412"),
-    Row("Trelegy", "Paracetamol", None, None, None, None,None, None,  None, None, None, None, None, None, None, None, None, None, None, "9574"),
+    Row("Trelegy", None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, "7536", "dummy"),
+    Row("trelegy", "ellipta", None, None, None, None, None, "20", "ml", None, None, None, None, None, None, None, None, None, None, "120", "dummy"),
+    Row("trelegy", "ellipta", None, None, None, None, None, "92", "mcg", None, None, None, None, None, None, None, None, None, None, "66", "dummy"),
+    Row("Vitamin", None, None, None, None, None, None, "78", "mg", None, None, None, None, None, None, None, None, None, None, "8264", "dummy"),
+    Row("vitamin", None, None, None, None, None, None, "78", "mg", None, None, None, None, None, None, None, None, None, None, "8348", "dummy"),
+    Row("Paracetamol", None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, "13412", "dummy"),
+    Row("Trelegy", "Paracetamol", None, None, None, None,None, None,  None, None, None, None, None, None, None, None, None, None, None, "9574", "dummy"),
   ], schema=schema_df_refdata)
   
   schema_df_expected = StructType([
@@ -491,7 +497,7 @@ def test_entity_match():
 
   df_actual = entity_match(df_input, df_refdata=df_refdata, ref_id_level="VPID", dose_form_list_bc=dose_form_list_bc,
                            id_col='epma_id', original_text_col='original_epma_description', form_in_text_col='form_in_text', text_col='epma_description',
-                           match_id_col='match_id', id_level_col='id_level', match_level_col='match_level', match_datetime_col='match_datetime', ref_id_col='ref_id') \
+                           match_id_col='match_id', id_level_col='id_level', match_level_col='match_level', match_datetime_col='match_datetime', ref_id_col='ref_id', ref_text_col='ref_description') \
               .drop('match_datetime')
 
   assert compare_results(df_actual, df_expected, join_columns=['match_id'])

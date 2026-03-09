@@ -106,9 +106,9 @@ df_gt_token = select_distinct_tokens(df_our_token, 'gt_name', 'gt_token')
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC 
+# MAGIC
 # MAGIC Case 1: We report vtm, ground truth report amp/vmp.
-# MAGIC 
+# MAGIC
 # MAGIC Rules: If ground truth name = epma name, and ground truth name != our name, we're wrong.
 
 # COMMAND ----------
@@ -124,9 +124,9 @@ df_our_vtm_wrong = df_us_vtm.filter(col('epma_token') == col('gt_token')) \
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC 
+# MAGIC
 # MAGIC Case 2: We report amp. ground truth report amp/vmp.
-# MAGIC 
+# MAGIC
 # MAGIC Rules:
 # MAGIC 1. If our name != epma name, and our name != ground truth name, we're wrong.
 # MAGIC 2. If all the AMPs with the same name map to the same VMP, or a unique AMP maps to a VMP with the same name, we're wrong as we should have reported the VMP.
@@ -160,9 +160,9 @@ df_our_amp_should_map_to_vmp = df_our_amp.join(df_our_amp_wrong, [ORIGINAL_TEXT_
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC 
+# MAGIC
 # MAGIC Case 3a: We report vmp. ground truth report VMP
-# MAGIC 
+# MAGIC
 # MAGIC Rules: 
 # MAGIC If ground truth vmp = epma but our vmp != epma and our vmp != ground truth vmp. We're wrong.
 
@@ -182,7 +182,7 @@ df_our_vmp_wrong = df_us_vmp.filter(col('gt_id_level') == 'VMP') \
 
 # MAGIC %md
 # MAGIC Case 3b: We report vmp. ground truth report AMP
-# MAGIC 
+# MAGIC
 # MAGIC Rules: If ground truth report amp, ground truth amp = epma, and there is unique amp, and ground truth vmp != ground truth amp. ground truth correct.
 
 # COMMAND ----------

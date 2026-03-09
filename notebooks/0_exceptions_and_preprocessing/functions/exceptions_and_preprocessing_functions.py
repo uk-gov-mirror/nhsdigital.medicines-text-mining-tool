@@ -3,6 +3,10 @@
 
 # COMMAND ----------
 
+# MAGIC %run ../../_modules/epma_global/exception_list
+
+# COMMAND ----------
+
 from functools import reduce
 from operator import or_
 from typing import List, Tuple
@@ -65,9 +69,17 @@ def select_record_batch_to_process(df: DataFrame,
   returns
     (DFCheckpoint): A checkpointed dataframe object containing the seleted batch.
   '''
-  df_selected = df.join(df_match_lookup_final, list(map(lambda x: df[x].eqNullSafe(df_match_lookup_final[x]), join_cols)), 'leftanti') \
-                  .join(df_unmappable, list(map(lambda x: df[x].eqNullSafe(df_unmappable[x]), join_cols)), 'leftanti').limit(batch_size)
-  return DFCheckpoint(df_selected)
+  df_eligible = df.join(df_match_lookup_final, list(map(lambda x: df[x].eqNullSafe(df_match_lookup_final[x]), join_cols)), 'leftanti') \
+                  .join(df_unmappable, list(map(lambda x: df[x].eqNullSafe(df_unmappable[x]), join_cols)), 'leftanti')
+  
+  df_selected = df_eligible.limit(batch_size)
+  
+  if batch_size >= df_eligible.count():
+    RECORDS_EXHAUSTED_FLAG = True
+  else:
+    RECORDS_EXHAUSTED_FLAG = False
+  
+  return DFCheckpoint(df_selected), RECORDS_EXHAUSTED_FLAG
 
 # COMMAND ----------
 
@@ -86,11 +98,26 @@ def select_distinct_descriptions(df: DataFrame,
 
 # COMMAND ----------
 
+def standardise_interchangeable_words(text_col: Column, function_on: bool = True) -> Column:
+  """
+  Applies a series of regex based text substituations to a spark column, text_col.
+  The function iterates over the pairs from interchangeable_words_dict and applies the replacement to text_col for each pair.
+  When function_on is False, the functtion returns text_col unchanged.
+  Note: replacements are applied sequentially and the output of each step is the input to the next. This means that earlier replacements can effect later pattern matches.
+  """
+  if function_on:
+    for interchange_replacement, interchange_pattern in interchangeable_words_dict.items():
+      text_col = F.regexp_replace(text_col, interchange_pattern, interchange_replacement)
+    
+  return text_col
+
+# COMMAND ----------
+
 def standardise_doseform(text_col: Column) -> Column:
 
   doseform_dict = {
     'topical': ' ',
-    'oral tablet': ' ',
+#    'oral tablet': ' ',
     'inh ': 'dose',
     'nebuliser solution': 'nebuliser liquid',
     r'capsule\s?\(gastro-resistant\)': 'gastro-resistant tablet',
@@ -98,11 +125,21 @@ def standardise_doseform(text_col: Column) -> Column:
     r'tablet\s?\(chewable\)': 'chewable tablet',
     r'tablet\s?\(gastro-resistant\)': 'gastro-resistant tablet', 
     r'tablet\s?\(soluble\)': 'soluble tablet',
-    ' mr ': ' modified-release ',
-    ' sr ': ' sustained release ',
+    r'\bsf\b': 'sugar free',
+    r'\bgf\b': 'gluten free',
+    r'\btts\b': 'transdermal patches',
+    r'\bpreserv\b': 'preservative',
+    r'\bcfc-free\b': 'cfc free',
+    r'\bpatch\b': 'patches',
+    r'\btablet\b': 'tablets',
+    r'\bsuppository\b': 'suppositories',
+    r'\bcapsule\b': 'capsules',
     # replace "50mcg in 1ml" with "50mcg / 1ml", but don't change "50mcg in 24 hours" (or "24h", etc)
     r'([a-z]\s)in(\s(?!24\s?h)\d)': '$1/$2',
-    '  ': ' '
+    '  ': ' ',
+    '(replaced less than character)!\\[cdata\\[': '', #Note: https://stackoverflow.com/questions/21816788/unclosed-character-class-error
+    '\\]\\](replaced greater than character)':'',
+    'non adhesive': 'non-adhesive'
   }
   for doseform_pattern, doseform_replacement in doseform_dict.items():
     text_col = F.regexp_replace(text_col, doseform_pattern, doseform_replacement)
@@ -114,13 +151,13 @@ def standardise_doseform(text_col: Column) -> Column:
 def standardise_drug_name(text_col: Column) -> Column:
 
   drug_name_dict = {
-    r'\badcal\sd3\b': 'adcal-d3',
-    r'\bfultium\sd3\b': 'fultium-d3',
-    r'\bbetnovate\sc\b': 'betnovate-c',
-    r'\bbetnovate\sn\b': 'betnovate-n',
-    r'\baugmentin\sduo\b': 'augmentin-duo', 
-    r'\bbetaloc\ssa\b': 'betaloc-sa',
-    r'\btimoptol\sla\b': 'timoptol-la',
+    r'\badcal\s?\-?d3\b': 'adcal-d3',
+    r'\bfultium\s?\-?d3\b': 'fultium-d3',
+    r'\bbetnovate\s?\-?c\b': 'betnovate-c',
+    r'\bbetnovate\s?\-?n\b': 'betnovate-n',
+    r'\baugmentin\s?\-?duo\b': 'augmentin-duo', 
+    r'\bbetaloc\s?\-?sa\b': 'betaloc-sa',
+    r'\btimoptol\s?\-?la\b': 'timoptol-la',
     'amethocaine': 'tetracaine',
     'aminacrine': 'aminoacridine',
     'amoxycillin': 'amoxicillin',
@@ -246,11 +283,6 @@ def correct_common_unit_errors(text_col: Column) -> Column:
     'mcg/ml': 'microgram/ml',	
     'mcg/hr': 'microgram/hour',		
     'mcg': 'microgram',
-    'modified-release patch': 'patches',
-    r'patch(\s|\n|$)': 'patches ',
-    r'tablet(\s|\n|$)': 'tablets ',
-    r'suppository(\s|\n|$)': 'suppositories ',
-    r'capsule(\s|\n|$)': 'capsules ',
     r'1000\s*ml': '1litre',
     r'1,000\s*ml': '1litre',
     r'2000\s*ml': '2litre',

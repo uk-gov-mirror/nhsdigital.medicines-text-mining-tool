@@ -318,39 +318,57 @@ def test_vtm_prev():
 
 @suite.add_test
 def test_parsed_datasets():
+  df_amp = spark.createDataFrame([
+    ('0', '0', '0', 'a', 'a', None),
+    ('1', '1', '1', 'b', 'b', 1),
+  ], ['index', 'APID', 'VPID', 'NM', 'NM_PREV', 'INVALID'])
+
+  temp_amp_table_name = f'_tmp_{uuid4().hex}'
+  df_amp.createOrReplaceGlobalTempView(temp_amp_table_name)
+
+  df_vmp = spark.createDataFrame([
+    ('0', '0', '0', 'a', 'a', None),
+    ('1', '1', '1', 'b', 'b', 1),
+  ], ['index', 'VPID', 'VTMID', 'NM', 'NMPREV', 'INVALID'])
+
+  temp_vmp_table_name = f'_tmp_{uuid4().hex}'
+  df_vmp.createOrReplaceGlobalTempView(temp_vmp_table_name)
+
   df_amp_parsed_input = spark.createDataFrame([
     ('0', '0', 'a', 'a'),
+    ('0', '1', 'b', 'b'),
   ], ['index', 'APID', 'TERM', 'MOIETY'])
-
-  temp_amp_table_name = f'_tmp_amp_{uuid4().hex}'
-  df_amp_parsed_input.createOrReplaceGlobalTempView(temp_amp_table_name)
-
+  
+  temp_amp_parsed_table_name = f'_tmp_amp_{uuid4().hex}'
+  df_amp_parsed_input.createOrReplaceGlobalTempView(temp_amp_parsed_table_name)
+  
   df_amp_parsed_expected = spark.createDataFrame([
-    ('0', 'a', '0', 'a'),
-  ], ['index', 'MOIETY', 'ref_id', 'ref_description'])
+    ('0', '0', 'a', 'a'),
+  ], ['ref_id', 'index', 'MOIETY', 'ref_description'])
   
   df_vmp_parsed_input = spark.createDataFrame([
-    ('1', '1', 'b', 'b'),
+    ('1', '0', 'b', 'b'),
+    ('1', '1', 'c', 'c'),
   ], ['index', 'VPID', 'TERM', 'MOIETY'])
-
-  temp_vmp_table_name = f'_tmp_vmp_{uuid4().hex}'
-  df_vmp_parsed_input.createOrReplaceGlobalTempView(temp_vmp_table_name)
-
+  
+  temp_vmp_parsed_table_name = f'_tmp_vmp_{uuid4().hex}'
+  df_vmp_parsed_input.createOrReplaceGlobalTempView(temp_vmp_parsed_table_name)
+  
   df_vmp_parsed_expected = spark.createDataFrame([
-    ('1', 'b', '1', 'b'),
-  ], ['index', 'MOIETY', 'ref_id', 'ref_description'])
+    ('0', '1', 'b', 'b'),
+  ], ['ref_id', 'index', 'MOIETY', 'ref_description'])
   
   class MockRefDataset(Enum):
-    AMP_PARSED = temp_amp_table_name
-    VMP_PARSED = temp_vmp_table_name
+    AMP_PARSED = temp_amp_parsed_table_name
+    VMP_PARSED = temp_vmp_parsed_table_name
+    AMP = temp_amp_table_name
+    VMP = temp_vmp_table_name
 
   with FunctionPatch('RefDataset', MockRefDataset):
     rdf = ReferenceDataFormatter('global_temp')
-
     assert rdf._amp_parsed is None
     assert compare_results(rdf.amp_parsed, df_amp_parsed_expected, join_columns=['index'])
     assert not rdf._amp_parsed is None
-
     assert rdf._vmp_parsed is None
     assert compare_results(rdf.vmp_parsed, df_vmp_parsed_expected, join_columns=['index'])
     assert not rdf._vmp_parsed is None  

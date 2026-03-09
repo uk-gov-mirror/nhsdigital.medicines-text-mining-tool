@@ -129,7 +129,7 @@ def test_select_record_batch_to_process_no_batch() -> bool:
     (1, 'b'),
   ], ['index', 'name'])
   
-  df_cp_actual = select_record_batch_to_process(df_input, df_match_lookup_final, df_input_unmappables, 
+  df_cp_actual, _ = select_record_batch_to_process(df_input, df_match_lookup_final, df_input_unmappables, 
                                                 batch_size=df_input.count(), join_cols=['index'])
   
   assert compare_results(df_cp_actual.df, df_expected, join_columns=['index'])
@@ -154,7 +154,7 @@ def test_select_record_batch_to_process_with_batch() -> bool:
     (3,)
   ], ['index'])
 
-  df_cp_actual = select_record_batch_to_process(df_input, df_match_lookup_final, df_unmappable, batch_size=2, join_cols=['index'])
+  df_cp_actual, _ = select_record_batch_to_process(df_input, df_match_lookup_final, df_unmappable, batch_size=2, join_cols=['index'])
 
   assert df_cp_actual.df.count() == 2
   
@@ -182,7 +182,7 @@ def test_select_record_batch_to_process_on_multiple_cols() -> bool:
     (2, 'c', 'c'),
   ], ['index', 'name1', 'name2'])
   
-  df_cp_actual = select_record_batch_to_process(df_input, df_match_lookup_final, df_input_unmappables, 
+  df_cp_actual, _ = select_record_batch_to_process(df_input, df_match_lookup_final, df_input_unmappables, 
                                                 batch_size=df_input.count(), join_cols=['name1', 'name2'])
   
   assert compare_results(df_cp_actual.df.select('index', 'name1', 'name2'), df_expected, join_columns=['index'])
@@ -213,7 +213,7 @@ def test_select_record_batch_to_process_on_multiple_cols_with_nulls() -> bool:
     (2, 'c', 'c'),
   ], ['index', 'name1', 'name2'])
   
-  df_cp_actual = select_record_batch_to_process(df_input, df_match_lookup_final, df_input_unmappables, 
+  df_cp_actual, _ = select_record_batch_to_process(df_input, df_match_lookup_final, df_input_unmappables, 
                                                 batch_size=df_input.count(), join_cols=['name1', 'name2'])
   
   assert compare_results(df_cp_actual.df.select('index', 'name1', 'name2'), df_expected, join_columns=['index'])
@@ -276,32 +276,30 @@ def test_standardise_doseform():
      ('capsule(modified release) something', '14'),
      ('tablert (soluble)', '15'),
      ('tablet  (chewable)', '16'),
-     ('sodium chloride nebuliser solution', '17'),
-     ('medication mr capsules', '18')
+     ('sodium chloride nebuliser solution', '17')
    ], [
      'medication_name_value', 'id'
    ])
 
   expected_df = spark.createDataFrame([
-     ('gastro-resistant tablet', '1'),
-     ('modified-release capsule', '2'),
-     ('chewable tablet', '3'),
-     ('gastro-resistant tablet', '4'),
-     ('soluble tablet', '5'),
-     ('gastro-resistant tablet', '6'),
-     ('modified-release capsule', '7'),
-     ('chewable tablet', '8'),
-     ('gastro-resistant tablet', '9'),
-     ('soluble tablet', '10'),
+     ('gastro-resistant tablets', '1'),
+     ('modified-release capsules', '2'),
+     ('chewable tablets', '3'),
+     ('gastro-resistant tablets', '4'),
+     ('soluble tablets', '5'),
+     ('gastro-resistant tablets', '6'),
+     ('modified-release capsules', '7'),
+     ('chewable tablets', '8'),
+     ('gastro-resistant tablets', '9'),
+     ('soluble tablets', '10'),
      (None, '11'), 
      ('', '12'), 
-     ('something gastro-resistant tablet', '13'),
-     ('modified-release capsule something', '14'),
+     ('something gastro-resistant tablets', '13'),
+     ('modified-release capsules something', '14'),
      ('tablert (soluble)', '15'),
-     ('tablet (chewable)', '16'),
-     ('sodium chloride nebuliser liquid', '17'),
-     ('medication modified-release capsules', '18')
-  ], [
+     ('tablets (chewable)', '16'),
+     ('sodium chloride nebuliser liquid', '17')
+   ], [
      'medication_name_value', 'id'
    ])
 
@@ -520,31 +518,18 @@ def test_correct_common_unit_errors():
     ('2', 'medicine mcg/ml medicine'),
     ('3', 'medicine mcg/hr medicine'),
     ('4', 'medicine mcg medicine'),
-    ('5', 'medicine modified-release patch medicine'),
-    ('6', 'medicine patch'),
-    ('7', 'medicine patch  medicine'),
-    ('8', 'medicine patch\n medicine'),
-    ('9', 'medicine tablet'),
-    ('10', 'medicine tablet  medicine'),
-    ('11', 'medicine tablet\n medicine'),
-    ('12', 'medicine suppository'),
-    ('13', 'medicine suppository  medicine'),
-    ('14', 'medicine suppository\n medicine'),
-    ('15', 'medicine capsule'),
-    ('16', 'medicine capsule  medicine'),
-    ('17', 'medicine capsule\n medicine'),
-    ('18', 'medicine 1000ml medicine'),
-    ('19', 'medicine 1000 ml medicine'),
-    ('20', 'medicine 1000  ml medicine'),
-    ('21', 'medicine 1,000ml medicine'),
-    ('22', 'medicine 1,000 ml medicine'),
-    ('23', 'medicine 1,000  ml medicine'),
-    ('24', 'medicine 2000ml medicine'),
-    ('25', 'medicine 2000 ml medicine'),
-    ('26', 'medicine 2000  ml medicine'),
-    ('27', 'medicine 2,000ml medicine'),
-    ('28', 'medicine 2,000 ml medicine'),
-    ('29', 'medicine 2,000  ml medicine'),
+    ('5', 'medicine 1000ml medicine'),
+    ('6', 'medicine 1000 ml medicine'),
+    ('7', 'medicine 1000  ml medicine'),
+    ('8', 'medicine 1,000ml medicine'),
+    ('9', 'medicine 1,000 ml medicine'),
+    ('10', 'medicine 1,000  ml medicine'),
+    ('11', 'medicine 2000ml medicine'),
+    ('12', 'medicine 2000 ml medicine'),
+    ('13', 'medicine 2000  ml medicine'),
+    ('14', 'medicine 2,000ml medicine'),
+    ('15', 'medicine 2,000 ml medicine'),
+    ('16', 'medicine 2,000  ml medicine'),
   ], 
     ['index', 'desc'])
 
@@ -554,31 +539,18 @@ def test_correct_common_unit_errors():
     ('2', 'medicine microgram/ml medicine'),
     ('3', 'medicine microgram/hour medicine'),
     ('4', 'medicine microgram medicine'),
-    ('5', 'medicine patches medicine'),
-    ('6', 'medicine patches '),
-    ('7', 'medicine patches  medicine'),
-    ('8', 'medicine patches  medicine'),
-    ('9', 'medicine tablets '),
-    ('10', 'medicine tablets  medicine'),
-    ('11', 'medicine tablets  medicine'),
-    ('12', 'medicine suppositories '),
-    ('13', 'medicine suppositories  medicine'),
-    ('14', 'medicine suppositories  medicine'),
-    ('15', 'medicine capsules '),
-    ('16', 'medicine capsules  medicine'),
-    ('17', 'medicine capsules  medicine'),
-    ('18', 'medicine 1litre medicine'),
-    ('19', 'medicine 1litre medicine'),
-    ('20', 'medicine 1litre medicine'),
-    ('21', 'medicine 1litre medicine'),
-    ('22', 'medicine 1litre medicine'),
-    ('23', 'medicine 1litre medicine'),
-    ('24', 'medicine 2litre medicine'),
-    ('25', 'medicine 2litre medicine'),
-    ('26', 'medicine 2litre medicine'),
-    ('27', 'medicine 2litre medicine'),
-    ('28', 'medicine 2litre medicine'),
-    ('29', 'medicine 2litre medicine'),
+    ('5', 'medicine 1litre medicine'),
+    ('6', 'medicine 1litre medicine'),
+    ('7', 'medicine 1litre medicine'),
+    ('8', 'medicine 1litre medicine'),
+    ('9', 'medicine 1litre medicine'),
+    ('10', 'medicine 1litre medicine'),
+    ('11', 'medicine 2litre medicine'),
+    ('12', 'medicine 2litre medicine'),
+    ('13', 'medicine 2litre medicine'),
+    ('14', 'medicine 2litre medicine'),
+    ('15', 'medicine 2litre medicine'),
+    ('16', 'medicine 2litre medicine'),
   ], 
     ['index', 'desc'])
 

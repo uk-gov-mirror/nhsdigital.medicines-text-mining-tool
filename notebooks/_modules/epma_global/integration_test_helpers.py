@@ -9,8 +9,6 @@ import warnings
 
 # COMMAND ----------
 
-INT_TEST_DEFAULT_SOURCE_DATASET = 'source_a'
-INT_TEST_SOURCE_DATASETS = {INT_TEST_DEFAULT_SOURCE_DATASET, 'source_b'}
 INT_TEST_UPLIFT_NOTEBOOK = "./notebooks/uplifts/fake_uplift"
 
 # COMMAND ----------
@@ -30,26 +28,24 @@ class IntegrationTestConfig():
     '_inter_exact_non_match',
     '_inter_entity_non_match',
     '_inter_match_lookup',
+    '_inter_next_submission',
     'match_lookup_final_table',
     'unmappable_table',
+    'requests_table',
+    'responses_table',
     '_cache_fuzzy_non_linked',
     '_cache_fuzzy_non_linked_non_match',    
     'accuracy_table',
-    'source_b_accuracy_table',
+    'curated_accuracy_table',
     'uplift_table'
   ]
 
-  def __init__(self, target_db='test_epma_autocoding', source_dataset_name=INT_TEST_DEFAULT_SOURCE_DATASET, uplift_notebook_name= INT_TEST_UPLIFT_NOTEBOOK, attrs_to_save=None):
+  def __init__(self, target_db='test_epma_autocoding', uplift_notebook_name= INT_TEST_UPLIFT_NOTEBOOK, attrs_to_save=None):
     self.target_db = target_db
     self._tables = {}
     self.uplift_notebook = uplift_notebook_name
     self._attrs_to_save = attrs_to_save or []
-    
-    if not source_dataset_name in INT_TEST_SOURCE_DATASETS:
-      raise AssertionError(f'Given source dataset {source_dataset_name} is not a valid choice (choices: {INT_TEST_SOURCE_DATASETS}).')
-    
-    self._source_dataset_name = source_dataset_name
-    
+     
   def __enter__(self):
     self._create_tables()
     return self

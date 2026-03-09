@@ -7,6 +7,14 @@ from pyspark.sql import DataFrame, Window
 
 # COMMAND ----------
 
+# MAGIC %run ../../0_exceptions_and_preprocessing/functions/exceptions_and_preprocessing_functions
+
+# COMMAND ----------
+
+# MAGIC %run ./exception_list
+
+# COMMAND ----------
+
 class RefDataset(Enum):
   AMP = 'amp'
   VMP = 'vmp'
@@ -25,8 +33,9 @@ class ReferenceDataFormatter():
   TEXT_COL = 'ref_description'
   ID_LEVEL_COL = 'id_level'
   
-  def __init__(self, ref_database: str='dss_corporate'):
+  def __init__(self, ref_database: str='dss_corporate', interchange_words: bool=True):
     self._ref_database = ref_database
+    self._interchange_words = interchange_words
     
     self._amp = None
     self._amp_prev = None
@@ -53,8 +62,7 @@ class ReferenceDataFormatter():
     if self._amp is None:
       df = self._load_dataset(RefDataset.AMP)
       self._amp = df.withColumn(self.ID_COL, col('APID')) \
-                    .withColumn('NM', F.regexp_replace(col('NM'), r'\bmr\b', 'modified-release')) \
-                    .withColumn('NM', F.regexp_replace(col('NM'), r'\bsr\b', 'sustained release')) \
+                    .withColumn('NM', standardise_interchangeable_words(col('NM'), self._interchange_words)) \
                     .select(self.ID_COL, col('NM').alias(self.TEXT_COL), 'APID', 'VPID') \
                     .withColumn(self.ID_LEVEL_COL, lit('APID'))
     return self._amp
@@ -72,10 +80,10 @@ class ReferenceDataFormatter():
       df = self._load_dataset(RefDataset.AMP)
       self._amp_prev = df.where(col('NM_PREV').isNotNull()) \
                          .withColumnRenamed('NM_PREV', 'NMPREV') \
+                         .withColumn('NMPREV', standardise_interchangeable_words(col('NMPREV'))) \
                          .withColumn(self.ID_COL, col('APID')) \
-                         .withColumn('NMPREV', F.regexp_replace(col('NMPREV'), r'\bmr\b', 'modified-release')) \
-                         .withColumn('NMPREV', F.regexp_replace(col('NMPREV'), r'\bsr\b', 'sustained release')) \
                          .select(self.ID_COL, col('NMPREV').alias(self.TEXT_COL), 'APID', 'VPID') \
+                         .filter((col('NMPREV').isNull()) | (~col('NMPREV').isin(historical_but_now_incorrect))) \
                          .withColumn(self.ID_LEVEL_COL, lit('APID'))
     return self._amp_prev
 
@@ -98,8 +106,7 @@ class ReferenceDataFormatter():
                           .where(col('_rn') == 1) \
                           .drop('_rn', '_apid_long', '_vpid_long') \
                           .withColumn(self.ID_COL, col('APID')) \
-                          .withColumn('NM', F.regexp_replace(col('NM'), r'\bmr\b', 'modified-release')) \
-                          .withColumn('NM', F.regexp_replace(col('NM'), r'\bsr\b', 'sustained release')) \
+                          .withColumn('NM', standardise_interchangeable_words(col('NM'))) \
                           .select(self.ID_COL, col('NM').alias(self.TEXT_COL), 'APID', 'VPID') \
                           .withColumn(self.ID_LEVEL_COL, lit('APID'))
     return self._amp_dedup
@@ -116,8 +123,7 @@ class ReferenceDataFormatter():
     if self._vmp is None:
       df = self._load_dataset(RefDataset.VMP)
       self._vmp = df.withColumn(self.ID_COL, col('VPID')) \
-                    .withColumn('NM', F.regexp_replace(col('NM'), r'\bmr\b', 'modified-release')) \
-                    .withColumn('NM', F.regexp_replace(col('NM'), r'\bsr\b', 'sustained release')) \
+                    .withColumn('NM', standardise_interchangeable_words(col('NM'), self._interchange_words)) \
                     .select(self.ID_COL, col('NM').alias(self.TEXT_COL), 'VTMID') \
                     .withColumn(self.ID_LEVEL_COL, lit('VPID'))
       if self._vmp.count() != self._vmp.drop_duplicates(['VTMID', self.TEXT_COL]).count():
@@ -138,11 +144,13 @@ class ReferenceDataFormatter():
       df = self._load_dataset(RefDataset.VMP)
       self._vmp_prev = df.where((col('NMPREV').isNotNull()) | (col('VPIDPREV').isNotNull())) \
                          .withColumn(self.ID_COL, col('VPID')) \
-                         .withColumn('NM', F.regexp_replace(col('NM'), r'\bmr\b', 'modified-release')) \
-                         .withColumn('NM', F.regexp_replace(col('NM'), r'\bsr\b', 'sustained release')) \
+                         .withColumn('NMPREV', standardise_interchangeable_words(col('NMPREV'))) \
+                         .withColumn('NM', standardise_interchangeable_words(col('NM'))) \
                          .select(self.ID_COL, col('NM').alias(self.TEXT_COL), 'VTMID', 'NMPREV', 'VPIDPREV') \
-                         .withColumn(self.ID_LEVEL_COL, lit('VPID'))
+                         .withColumn(self.ID_LEVEL_COL, lit('VPID')) \
+                         .filter((col('NMPREV').isNull()) | (~col('NMPREV').isin(historical_but_now_incorrect))) 
     return self._vmp_prev
+                        
 
   @property
   def vtm(self):  
@@ -156,6 +164,7 @@ class ReferenceDataFormatter():
     if self._vtm is None:
       df = self._load_dataset(RefDataset.VTM)
       self._vtm = df.withColumn(self.ID_COL, col('VTMID')) \
+                    .withColumn('NM', standardise_interchangeable_words(col('NM'), self._interchange_words)) \
                     .select(self.ID_COL, col('NM').alias(self.TEXT_COL)) \
                     .withColumn(self.ID_LEVEL_COL, lit('VTMID'))
       if self._vtm.count() != self._vtm.drop_duplicates().count():
@@ -192,10 +201,11 @@ class ReferenceDataFormatter():
     '''
     if self._amp_parsed is None:
       df = self._load_uncleaned_dataset(RefDataset.AMP_PARSED)
-      self._amp_parsed = df.withColumn(self.ID_COL, col('APID')) \
+      df = df.withColumn(self.ID_COL, col('APID')) \
                            .withColumn(self.TEXT_COL, col('TERM')) \
                            .drop('APID', 'TERM') \
-                           .where(~F.lower(col('MOIETY')).isin(['blackcurrant', 'orange', 'raspberry', 'peppermint', 'syrup']))
+                           .where(~F.lower(col('MOIETY')).isin(flavours))
+      self._amp_parsed = self._remove_invalid_ids(df, 'AMP')
     return self._amp_parsed
  
   @property
@@ -211,10 +221,11 @@ class ReferenceDataFormatter():
     '''
     if self._vmp_parsed is None:
       df = self._load_uncleaned_dataset(RefDataset.VMP_PARSED)
-      self._vmp_parsed = df.withColumn(self.ID_COL, col('VPID')) \
+      df = df.withColumn(self.ID_COL, col('VPID')) \
                            .withColumn(self.TEXT_COL, col('TERM')) \
                            .drop('VPID', 'TERM') \
-                           .where(~F.lower(col('MOIETY')).isin(['blackcurrant', 'orange', 'raspberry', 'peppermint', 'syrup']))
+                           .where(~F.lower(col('MOIETY')).isin(flavours))
+      self._vmp_parsed = self._remove_invalid_ids(df, 'VMP')
     return self._vmp_parsed
 
   def _clean_ref_data(self, df: DataFrame) -> DataFrame:
@@ -232,8 +243,30 @@ class ReferenceDataFormatter():
 
   def _load_uncleaned_dataset(self, dataset_name: RefDataset) -> DataFrame:
     return spark.table(f'{self._ref_database}.{dataset_name.value}')
+  
+  def _invalid_ref_data(self, df: DataFrame) -> DataFrame:
+    df = df.where(col('INVALID').isNotNull())
+    return df
+  
+  def _load_invalid_dataset(self, dataset_name: RefDataset) -> DataFrame:
+    return self._invalid_ref_data(
+      spark.table(f'{self._ref_database}.{dataset_name.value}'))
+    
+  def _remove_invalid_ids(self, df_uncleaned: DataFrame, dataset_granularity: str) -> DataFrame:
+    if dataset_granularity =='AMP':
+      id_column = 'APID'
+      dataset_name = RefDataset.AMP
+    elif dataset_granularity == 'VMP':
+      id_column = 'VPID'
+      dataset_name = RefDataset.VMP
+    df_with_invalid_flags = self._load_invalid_dataset(dataset_name)
+    df_with_invalid_flags = df_with_invalid_flags.withColumn(self.ID_COL, col(id_column))
+    df_cleaned = df_uncleaned.join(df_with_invalid_flags, on=self.ID_COL, how='leftanti')
+    return df_cleaned
+    
       
 
 # COMMAND ----------
 
 RefDataStore = ReferenceDataFormatter()
+RefDataStoreUntouched = ReferenceDataFormatter(interchange_words = False)
