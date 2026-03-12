@@ -81,6 +81,9 @@ The following dm+d tables are required as inputs to the pipeline:
 - route
 - unit_of_measure
 
+This code uses functionality from the thefuzz package, but the relevant components were copied into the project in 2022 rather than imported as a dependency due to platform restrictions. As a result, updates to the live thefuzz library will not be reflected in this model.
+The original package can be found here: https://github.com/seatgeek/thefuzz
+
 # To run the pipeline
 Locate and run the init_schemas notebook. You will need to specify the following, which are the database and table names where the outputs will be written to:
 - db
