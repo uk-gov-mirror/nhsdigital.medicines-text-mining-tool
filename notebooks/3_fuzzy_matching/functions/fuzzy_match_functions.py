@@ -1,9 +1,9 @@
 # Databricks notebook source
-# MAGIC %run ../../_modules/fuzzy_wuzzy/process
+# MAGIC %run ../../_modules/thefuzz/process
 
 # COMMAND ----------
 
-# MAGIC %run ../../_modules/fuzzy_wuzzy/fuzz
+# MAGIC %run ../../_modules/thefuzz/fuzz
 
 # COMMAND ----------
 
@@ -12,6 +12,10 @@
 # COMMAND ----------
 
 # MAGIC %run ../../_modules/epma_global/ref_data_lib
+
+# COMMAND ----------
+
+# MAGIC %run ../../_modules/epma_global/exception_list
 
 # COMMAND ----------
 
@@ -32,7 +36,7 @@ from pyspark.sql import DataFrame
 
 def wratio_lite(p1, p2):
   ''' 
-  Simplified version of WRatio from fuzzywuzzy.fuzz.
+  Simplified version of WRatio from thefuzz.fuzz.
   This only considers the ratio and token_set_ratio scorers.
   In WRatio, if one string is more than 1.5 times the length of the other, then partial scorers ar tried.
   However, in out pipeline we have a threshold for WRatio of 91, which partial scorers can't achieve.
@@ -193,6 +197,42 @@ def best_match_fuzzy_wratio(ref_data_store: ReferenceDataFormatter,
 
 # COMMAND ----------
 
+def free_from_best_match_fuzzy_wratio(ref_data_store: ReferenceDataFormatter,
+                                    df_input: DataFrame, 
+                                    search_term: str,
+                                    text_col: str, 
+                                    confidence_score_col: str,
+                                    match_term_col: str,
+                                    match_level_col: str,
+                                    id_level_col: str,
+                                    match_id_col: str,
+                                    ) -> DataFrame:
+  '''
+  Fuzzy match when there is a "x-free"
+  
+  The function will filter "x-free" in the refernce for joining 
+  '''  
+  df_ref_data = None
+  for level in ['amp_dedup', 'vmp', 'vtm']:
+    df_level = getattr(ref_data_store, level) \
+               .where(col(ref_data_store.TEXT_COL).contains(search_term)) \
+               .select(ref_data_store.ID_COL, ref_data_store.TEXT_COL, id_level_col)
+    df_ref_data = df_level if df_ref_data is None else df_ref_data.union(df_level)
+
+  df_best_match = run_wratio_fuzzy_match_to_ref_data(df_input,
+                                                    df_ref_data, 
+                                                    text_col=text_col, 
+                                                    confidence_score_col=confidence_score_col,
+                                                    match_term_col=match_term_col,
+                                                    id_level_col=id_level_col,
+                                                    match_id_col=match_id_col,
+                                                    ref_data_id_col=ref_data_store.ID_COL,
+                                                    ref_data_text_col=ref_data_store.TEXT_COL)
+  
+  return df_best_match.withColumn(match_level_col, lit('fuzzy_x_free'))
+
+# COMMAND ----------
+
 def diluent_best_match_fuzzy_wratio(ref_data_store: ReferenceDataFormatter,
                                     df_input: DataFrame, 
                                     search_term: str,
@@ -230,7 +270,7 @@ def diluent_best_match_fuzzy_wratio(ref_data_store: ReferenceDataFormatter,
 @pandas_udf(LongType(), PandasUDFType.SCALAR)
 def fuzzy_wratio_udf(src_text_col: pd.Series, text_to_match_col: pd.Series) -> pd.Series:
   '''
-  This pandas UDF runs fuzzy wuzzy WRatio on the values in the given two columns.
+  This pandas UDF runs thefuzz WRatio on the values in the given two columns.
   '''
   return pd.Series(WRatio(src_text, text_to_match) for src_text, text_to_match in zip(src_text_col, text_to_match_col))
 
@@ -596,6 +636,75 @@ FunctionStepOutputStruct = namedtuple('FunctionStepOutputStruct', ['df_remaining
 
 # COMMAND ----------
 
+def free_from_fuzzy_match_step(df_input: DataFrame,
+                             ref_data_store: ReferenceDataFormatter,
+                             confidence_threshold: int,
+                             id_col: str,
+                             original_text_col: str,
+                             text_col: str, 
+                             form_in_text_col: str,
+                             match_term_col: str,
+                             match_level_col: str,
+                             id_level_col: str,
+                             match_id_col: str,
+                             match_datetime_col: str,
+                             reason_col: str,
+                             timestamp: datetime=None,
+                            ) -> FunctionStepOutputStruct:
+  
+  '''
+  fuzzy matching step for x-free. It runs fuzzy matching only on a subset of input data that contains 'x-free', 
+  and reference data that contains 'x-free' 
+  '''  
+
+  # drop the match ID from the previous entity match stage.
+  # The input data can contain many partial entity record matches for each id. Here we don't consider the partial 
+  # matches, so drop duplicates to only select the single id and text for each original record.
+  df_input_select = df_input.drop(match_id_col).dropDuplicates(subset=[id_col, text_col])
+  
+  #Adding the f
+  df_free = df_input_select.where(col(text_col).contains(' free ')) #risk of spaces
+
+  df_best_match_free = free_from_best_match_fuzzy_wratio(
+                                                      ref_data_store,
+                                                      df_free,
+                                                      search_term='free',
+                                                      text_col=text_col, 
+                                                      confidence_score_col='_confidence_score',
+                                                      match_term_col=match_term_col,
+                                                      match_level_col=match_level_col,
+                                                      id_level_col=ref_data_store.ID_LEVEL_COL,
+                                                      match_id_col=match_id_col)
+
+    
+  # Records without free go to next stage
+  df_remaining = DFCheckpoint(df_input.join(df_free, on=id_col, how='left_anti'))
+    
+  timestamp = F.current_timestamp() if timestamp is None else lit(timestamp)
+  
+  # There could be duplicate IDs so dropDuplicates is used.
+  # This is because the free_from_best_match_fuzzy_ratio function could return two matches if there is a AMP and a VMP with the same match_term.
+  # It doesn't matter whether we keep the AMP or the VMP match, as the final step in fuzzy matching handles mapping up to VMP if AMP and VMP have the same match_term.
+  df_mappable = (df_best_match_free
+                 .where(col('_confidence_score') >= confidence_threshold)
+                 .dropDuplicates([id_col])
+                 .withColumn(match_datetime_col, timestamp)
+                 .select(id_col, original_text_col, form_in_text_col, text_col, match_id_col, id_level_col, match_level_col, match_datetime_col)
+                )
+  
+  # Records with free that are below the threshold are unmappble.
+  df_unmappable = (df_free
+                   .join(df_mappable, on=id_col, how='left_anti')
+                   .dropDuplicates([id_col])
+                   .withColumn(reason_col, lit('fuzzy_x_free_low_score'))
+                   .withColumn(match_datetime_col, timestamp) \
+                                    .select(original_text_col, form_in_text_col, reason_col, match_datetime_col)
+                  )
+
+  return FunctionStepOutputStruct(df_remaining, df_mappable, df_unmappable)
+
+# COMMAND ----------
+
 def diluent_fuzzy_match_step(df_input: DataFrame,
                              ref_data_store: ReferenceDataFormatter,
                              confidence_threshold: int,
@@ -847,18 +956,7 @@ def get_non_moiety_words(table_form='dss_corporate.form',
   list_form_route_unit = list_form.union(list_route).union(list_unit).select(F.collect_set(F.lower(col('DESC'))).alias('DESC')).first()['DESC']
 
   # Plus an additional custom list of words.
-  list_extra = [
-                # words found in the parsed reference data
-                'and', 'daily', 'dose', 'dry', 'extra', 'flavour', 'for', 'formula', 'free', 'generic', 'in', 'inhaler', 'injection', 'kwikpen', 
-                'lemon', 'max',  'mint', 'normal', 'original', 'patient', 'pen', 'penfill', 'plus', 'pre-filled', 'release', 'solution', 'strength',  
-                'strong', 'weight', 'with', 
-                # words found in source_b samples
-                'actuated', 'add', 'adult', 'advance', 'breath', 'cart', 'cfc', 'chewable', 'comment', 'dosealation', 'effervescent', 'fluid', 
-                'infant', 'injectable', 'jelly', 'level', 'lubricating', 'modified', 'non-adhesive', 'only', 'per', 'pre-dose', 'ribbon',  
-                'scalp', 'shower', 'sugar',  'suppositories', 'tube', 'testing',                  
-                # words which could be moieties but more likely to be flavours
-                'blackcurrant', 'orange', 'peppermint', 'raspberry', 'syrup'
-               ]
+  list_extra = non_moiety_words_extra + flavours
 
   #   If it is a compound word e.g. 'a/b' or 'a-b', split it into tokens.
   list_with_punc = [word for word in list_form_route_unit + list_extra if ('-' in word) or ('/' in word)]

@@ -1,11 +1,17 @@
 # Databricks notebook source
+from datetime import datetime
 from pyspark.sql import DataFrame
 from pyspark.sql.types import StructType, IntegerType
 from typing import List
 import re
+from operator import or_
 
 from pyspark.sql.functions import col, lit
 import pyspark.sql.functions as F
+
+# COMMAND ----------
+
+# MAGIC %run ./exception_list
 
 # COMMAND ----------
 
@@ -177,6 +183,47 @@ def append_to_table(df: DataFrame,
 
 # COMMAND ----------
 
+def remove_incorrects(df_input: DataFrame, 
+                   original_text_col: str,
+                   form_in_text_col: str,
+                   match_id_col: str,
+                   match_datetime_col: str,
+                   reviewed_matches_table_name: str,
+                   timestamp: datetime=None,
+                   ):
+  '''
+  As part of reviewing the ePMA autocoding, a clinical reviewer or terminology expert reviews a section of the matches. If a mapping has been found to be incorrect, we then upload this information back into the model. 
+  this function fetches the list of matches reviewed and found to be incorrect using get_incorrects(), 
+  then moves the incorrect from the match table to the unmappable table, dated, with the reason that it is mapping to an incorrect medication.
+  '''
+  incorrect_matches = get_incorrects(reviewed_matches_table_name)
+  
+  df_cleaned = df_input.join(incorrect_matches, on=[original_text_col, form_in_text_col, match_id_col], how="leftanti")
+  df_incorrect = df_input.join(incorrect_matches, on=[original_text_col, form_in_text_col, match_id_col], how="leftsemi")
+  
+  timestamp = F.current_timestamp() if timestamp is None else lit(timestamp)
+  
+  df_unmappable = df_incorrect.withColumn("reason", lit("mapping to an incorrect medication")) \
+                                   .withColumn(match_datetime_col, timestamp) \
+                                   .select([original_text_col, form_in_text_col, "reason", match_datetime_col])
+  
+  return df_cleaned, df_unmappable
+
+# COMMAND ----------
+
+def get_incorrects(reviewed_matches_table_name: str
+                  ) -> DataFrame:
+  ''' Pulls in the reviewed matches and outputs the incorrect matches (score: 3 = wrong, 4 = contains patient identifiable data)
+  '''
+  spark.sql(f'REFRESH TABLE {reviewed_matches_table_name}')
+  reviewed_matches = spark.table(reviewed_matches_table_name)
+  
+  incorrect_matches = reviewed_matches.filter((col("score")==3) | (col("score")==4))
+    
+  return incorrect_matches
+
+# COMMAND ----------
+
 class DFCheckpoint():
   '''
   Class that caches a dataframe then handles unpersisting it.
@@ -226,7 +273,8 @@ def clear_cache():
 def create_table(df,
                  db_or_asset,
                  table=None,
-                 overwrite=False
+                 overwrite=False,
+                 format_type=None
                 ):
   ''' 
   Write a table from the input df.
@@ -240,11 +288,13 @@ def create_table(df,
   else:
     asset_name = f'{db_or_asset}.{table}'
     db = db_or_asset
- 
+  
+  writer = df.write if format is None else df.write.format(format_type)
+
   if overwrite is True:
-    df.write.saveAsTable(asset_name, mode='overwrite')
+    writer.mode("overwrite").saveAsTable(asset_name)
   else:
-    df.write.saveAsTable(asset_name)
+    writer.saveAsTable(asset_name)
       
   if db == 'test_epma_autocoding':
     # On ref when testing. Oo prod, or on ref normally, the job user has access to the epma_autocoding db, so this isn't necessary.
@@ -265,7 +315,8 @@ def create_table_from_schema(schema: StructType,
                              db_or_asset: str,
                              table: str=None,
                              overwrite: bool=False,
-                             allow_nullable_schema_mismatch=False
+                             allow_nullable_schema_mismatch=False,
+                             format_type=None
                             ) -> None:
   '''
   Creates a new empty table based on the given schema.
@@ -289,10 +340,67 @@ def create_table_from_schema(schema: StructType,
   if table_exists(db, table):
     if overwrite:
       drop_table(db, table)
-      create_table(df_new, db, table)
+      create_table(df_new, db, table, format_type)
     else:
       df_existing = spark.table(asset_name)
       if check_schemas_match(df_existing, df_new, allow_nullable_schema_mismatch=allow_nullable_schema_mismatch) is False:
         raise AssertionError(f'The given new schema does not match the existing schema, and overwrite is set to False.\nExisting: {df_existing.schema.json()}\nNew     : {df_new.schema.json()}')
   else:
-      create_table(df_new, db, table)
+      create_table(df_new, db, table, format_type)
+
+# COMMAND ----------
+
+def remove_never_mix_ups(df: DataFrame,
+                         col_name1: str,
+                         col_name2: str
+                        ) -> DataFrame:
+  '''
+  This function will remove all the items which should never be matched together from the potiential matches table, df
+  '''
+  
+  conditions = [
+    (col(col_name1).rlike(x)  & col(col_name2).rlike(y)) | (col(col_name1).rlike(y) & col(col_name2).rlike(x))
+    for x,y in never_mix_up_dict.items()
+  ]
+  
+  combined_condition = ~reduce(or_, conditions)
+  
+  filtered_df = df.filter(combined_condition)
+  
+  return filtered_df
+
+# COMMAND ----------
+
+def say_it_or_wrong(df: DataFrame,
+                         col_name1: str,
+                         col_name2: str
+                        ) -> DataFrame:
+  '''
+  This function will remove all the options, from the potential matches table, that do not contain an important word/term which was said in the description, df
+  '''
+  
+  conditions = [
+    (col(col_name1).rlike(x)  & ~(col(col_name2).rlike(x))) | (~(col(col_name1).rlike(x)) & col(col_name2).rlike(x))
+    for x in say_it_or_wrong_list
+  ]
+  
+  combined_condition = ~reduce(or_, conditions)
+  
+  filtered_df = df.filter(combined_condition)
+  
+  return filtered_df
+
+# COMMAND ----------
+
+def get_status(db_name, status_table_name):
+  '''
+  This function is used outside of normal running as part of the skip and restarting autocoding bug solution. It is not relevant outside of the pipeline and autocoding workspace.
+  '''
+  df_status = spark.table(f"{db_name}.{status_table_name}")
+  
+  if df_status.limit(1).collect() == []:
+    status = "closed"
+  else:
+    status = df_status.first()["status"]
+  
+  return status

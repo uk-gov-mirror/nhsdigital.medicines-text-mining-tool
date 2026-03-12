@@ -27,3 +27,6 @@ if ENV == 'ref':
   dbutils.notebook.run("./tests/test_fuzzy_wratio_udf", 0, {'db': DB})
 
 dbutils.notebook.run("./tests/test_accuracy_calculating", 0, {'db': DB})
+
+# COMMAND ----------
+

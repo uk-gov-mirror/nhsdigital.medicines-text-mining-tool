@@ -8,13 +8,19 @@ Medicines text mining tool
 ***To contact us raise an issue on Github or via email and we will respond promptly.***
 
 # Clinical statement
-NHS Digital's Interoperable Medicines Programme has been involved in establishing a flow of medicine data from secondary care to improve medication safety, gain insights into overprescribing, understand the overuse of antibiotics, and improve the treatments related to COVID-19. Initial investigatory work with trusts and suppliers concluded that the standard for describing and coding medicines (dictionary of medicines and devices - dm+d) is only partially adopted by secondary care organisations. To enable any medicines data collection from individual hospitals to be comparable across England the programme has developed text mining functionality to map a hospital medicine description to the closest match in the dm+d standard (this functionality is known as Medicines Text Mining Tool - MTMT). Where there are too many variations between the medicine description and the closest dm+d description the match will appear as unmapped (exceeds a threshold). The mapped outputs can only be used for the secondary uses of data and must not be used for direct care (e.g. must not be used to map a hospital drug dictionary for direct care use).
--	The Medicines Text Mining Tool has been developed from data derived from CareFlow Medicines Management electronic Prescribing and Medicines Administration (ePMA) systems utilised in 25 trusts in England. The data set contained 50,841,362 prescribed items with 49,844 unique descriptions. From the list of prescribed items 89.3% were mapped to the dm+d standard. 
--	There were 24,081,702 prescribed items where it was possible to compare the Medicines Text Mining Tool against manual dm+d mapping performed by Trusts. The results matched exactly 60.8% of the time and identified the same active ingredient (that is had a common VTM or VMP code) 99.3% of the time.
--	Assurances cannot be provided around the coverage of patient episodes nor bed days included in the data that was used to develop the "tool"
--	All reasonable endeavours have been undertaken to clinically assure the Medicines Text Mining Tool and reasonable attempts were undertaken to rectify issues and errors that were identified. 
--	A list of issues that have been identified and could not be rectified are provided in appendix A, please note that list is not comprehensive - there may be further issues and incorrect mappings that have yet been identified.  
--	Therefore, for reasons outlined above, NHS Digital cannot accept clinical responsibility for use of the "tool" and any outputs from use of the mapped data. The use of both the mapping tool and mapped data is the clinical responsibility of the user.
+NHS England has been involved in establishing a flow of patient level medicine data from secondary care to improve medication safety, gain insights into overprescribing, understand the overuse of antibiotics, and improve the treatments related to COVID-19. Initial investigatory work with trusts and suppliers concluded that the standard for describing and coding medicines (dictionary of medicines and devices - dm+d) is only partially adopted by secondary care organisations. To enable any medicines data collected from individual hospitals to be comparable across England the programme has developed text mining functionality to map a free text hospital medicine description to the closest match in the dm+d standard (this functionality is known as Medicines Text Mining Tool - MTMT). Where there are too many variations between the medicine description and the closest dm+d description the match will appear as unmapped (exceeds a threshold). The mapped outputs can only be used for the secondary uses of data and must not be used for direct care (e.g. must not be used to map a hospital drug dictionary for direct care use). 
+
+- The Medicines Text Mining Tool has been developed from data derived from the electronic Prescribing and Medicines Administration (ePMA) systems utilised in the data collection early adopter trusts across England. As of Feb 2026, the data includes around 235,000 unique descriptions across 35 Trusts currently submitting data. From the list of items, 86.9% were mapped to the dm+d standard. 
+
+- In total this is from around 540,000,000 submissions, 25.2% of those mapped have been reviewed by a terminology expert. 24.9% were found to be exactly correct, 0.16% were correct at the active ingredient level but the reviewer would have mapped it at a different granularity, and 0.04% were found to be incorrect and have been ?unmapped? so that no automapping is produced for future submissions.  
+
+- All reasonable endeavours have been undertaken to clinically assure the Medicines Text Mining Tool and reasonable attempts were undertaken to rectify issues and errors that were identified. 
+
+- A list of issues that have been identified and could not be rectified are provided in appendix A, please note that list is not comprehensive - there may be further issues and incorrect mappings that have not yet been identified. 
+
+- Therefore, for reasons outlined above, NHS England cannot accept clinical responsibility for use of the "tool" and any outputs from use of the mapped data. The use of both the mapping tool and mapped data is the clinical responsibility of the user. 
+
+ 
 
 
 ### APPENDIX A - Known issues with the Medicines Text Mining Tool
@@ -29,6 +35,18 @@ NHS Digital's Interoperable Medicines Programme has been involved in establishin
 |7	|Closest lexical match is not the correct match	|<li>ePMA terms for 'phosphate enema' matched to the VTM Phosphate. The VMPs 'Phosphates enema (Formula B) 128ml long tube' and 'Phosphates enema (Formula B) 128ml standard tube' are linked to the VTM 'Sodium acid phosphate + Sodium phosphate'</li>|
 |8	|Mismatching due to flavours|<li>ePMA term 'FORTISIP COMPACT PROTEIN (TROPICAL GINGER) Liquid' matched to VTM Ginger</li><li>ePMA term 'Peppermint water' matched to VTM Water</li>|
 |9	|Non-medicinal product entries in ePMA|<li>ePMA terms such as 'drug not listed 1' and 'FLUIDS: See Paper Chart' were unmappable</li>|
+|10 |Hybrid terms in free-text box |<li> "quetiapine xl 400 mg tablets" is incorrectly mapping to VMP "quetiapine 400mg tablets". The human assumption is that the term "xl" may refer to one of the 16 AMP's which belong to the VMP "quetiapine 400mg modified-release tablets", none of which include the moiety "quetiapine" directly so it has been unable to map to the correct AMP, and as the free-text doesn't include "modified-release" it has been unable to map to the correct VMP. </li><li>"prontosan wound gel dressing" matching with "prontosan wound gel x dressing" </li><li>"timolol la 0.25 % eye drops" matching with "timolol 0.25 % eye drops"</li>|
+|11 |Ambiguous inputs mapping with historical names |<li> "codeine phosphate" is the historical name for "codeine phosphate powder", however there are now other forms of codeine phosphate which, without a fix, are mapping to it incorrectly. </li>|
+|12 |Mismatching due to ambiguous information |<li>ePMA term "Macrogol 3350 + electrolytes" was mapping to "Macrogol 3350", but there are multiple other dm+d options such as "Macrogol compound oral powder sachets NPF sugar free" which the electrolytes are probably referring to but not specifying. </li>|
+|13 |Brand name matching |<li> ePMA term 'balneum cream' was mapping to 'soya oil' because the balneum brand does creams and oils but the creams are named 'balneum plus', so the autocoding assumption was that the oil was the target solution.  </li><li>'ipc boots' and 'boots flowtron' mapping to 'boots vapour rub' because of the Boots brand name</li>|
+|14 |Close lexical partial matches |<li>ePMA term 'hydromol cream' mapping to dm+d term 'hydromol relief cream'</li><li>In some cases, a close lexical match is mapping correctly because the missed terms by chance are still correct:<ul><li>'glycopyrronium & formoterol' mapping to 'glycopyrronium bromide + formoterol' is still correct due to bromide as a salt</li><li>'erythromycin' mapping to dm+d term 'erythromycin ethyl succinate' is still correct due to ethyl succinate  being a salt</li></ul>These are correct in this instance, but do highlight a risk and demonstrate the balancing point of trying to capturing items which are insinuated without making incorrect assumptions </li>|
+|15 |Close matches but matching on the wrong form |ePMA term 'saliva artificial oral gel' mapping to dm+d term 'mucin + xylitol' which is a form of artificial saliva but in spray form rather than gel. |
+|16 |Assuming the form |ePMA term 'morphine sulfate' mapping to dm+d term 'morphine sulfate powder'|
+|17 |One to one mapping may change on the release of new products |No specific examples. <br>Explanation: The match lookup table is static; this means that once autocoding has been run on an ePMA input, the solution will be saved and used if that ePMA input is ever seen again. There is a small risk here that after this point, the release of new medications and brands could mean that autocoding, if ran, would make different decisions. For example, if a brand releases a similar product, with a similar name which gives a better or same fuzzy match score than the current match. This would then mean that the match may be incorrect until the next refresh of the match lookup table.</br>|
+|18 |ePMA description and form don't match |If the ePMA description and the form don't match the autocoding will not know which to choose. Exact matching has been set up to prioritise the description first, but other parts of the model may pick up the form_in_text if it finds a closer match. |
+|19 |Concoctions |In some instances the description may list a series of different medications (e.g. via a syringe pump) that wouldn't naturally fit with one item in dm+d. In this instance, a partial match may be found without indicating the that it only includes part of the medications listed.|
+
+
 
 # Getting started
 
@@ -63,6 +81,9 @@ The following dm+d tables are required as inputs to the pipeline:
 - route
 - unit_of_measure
 
+This code uses functionality from the thefuzz package, but the relevant components were copied into the project in 2022 rather than imported as a dependency due to platform restrictions. As a result, updates to the live thefuzz library will not be reflected in this model.
+The original package can be found here: https://github.com/seatgeek/thefuzz
+
 # To run the pipeline
 Locate and run the init_schemas notebook. You will need to specify the following, which are the database and table names where the outputs will be written to:
 - db
@@ -78,6 +99,12 @@ Locate and run the run_notebooks notebook. You will need to specify:
 - notebook_root: the location of this notebook
 		
 # Licence
-Medicines Text Mining Tool codebase is released under the MIT License.
+ePMA Autocoding codebase is released under the MIT License.
 
 The documentation is © Crown copyright and available under the terms of the [Open Government 3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/) licence.
+
+# Contact
+Please direct questions relating to this codebase to:
+- england.datascience@nhs.net - the data science team, or 
+- england.dataproduct@nhs.net - the product owner.
+

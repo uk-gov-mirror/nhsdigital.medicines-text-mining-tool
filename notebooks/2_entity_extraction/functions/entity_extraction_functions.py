@@ -27,7 +27,7 @@ def find_strength_unit_pairs_regex(string_to_search: str) -> str:
   '''(([^a-zA-Z]\\d?\\.?\\d+)+) - Extract numbers/decimals with no units
   ([a-zA-Z]*\\/?\\.?[a-zA-Z]*\\-?\\%?\\.?) - Extract words or % after the number followed by with or without spaces.
   '''
-  return re.findall("(([^a-zA-Z]\\d?\\.?\\d+)+)\\s?([a-zA-Z]*\\/?\\.?[a-zA-Z]*\\-?\\%?\\.?)", string_to_search)
+  return re.findall('(([^a-zA-Z]\\d?\\.?\\d+)+)\\s?([a-zA-Z]*\\/?\\.?[a-zA-Z]*\\-?\\%?\\.?)', string_to_search)
 
 # COMMAND ----------
 
@@ -48,7 +48,7 @@ def two_moieties_separated_by_slashes(string_to_search: str) -> str:
 # COMMAND ----------
 
 def moiety_separated_by_dash(string_to_search: str) -> str:
-  '''check for the pattern - moeity seperated by "-" and moeity> 2 characters
+  '''check for the pattern - moiety seperated by "-" and moiety > 2 characters
   Eg: betamethasone-calcipotriol 0.05%-0.005% topical foam'.
   '''
   return re.search('([a-zA-Z]{2,}\\-+[a-zA-Z]{3,})', string_to_search)
@@ -67,7 +67,8 @@ def check_for_dose_form(input_string: str,
 
 # List of fields which can be populated with strength and unit pairs.
 # We use a named tuple here because the strength unit values can take no other fields. 
-# A named tuple allows us to enforce the structure of the outputs for the function which extracts the strength unit pairs and raise an error if an extra pair is found.
+# A named tuple allows us to enforce the structure of the outputs for the function which extracts the
+# strength unit pairs and raise an error if an extra pair is found.
 FIELDS = ('SVN', 'SVU', 'SVN2', 'SVU2', 'SVD', 'SDU', 'SVN_2', 'SVU_2', 'SVD_2', 'SDU_2', 'SVN_3', 'SVU_3')
 FormattedStrengthUnitValues = namedtuple('strength_unit_values', FIELDS, defaults=(None,)*len(FIELDS))
 
@@ -158,6 +159,7 @@ def join_on_columns_and_filter_max_moieties(df_input: DataFrame,
                                             df_refdata: DataFrame,
                                             id_col: str,
                                             text_col: str,
+                                            ref_text_col: str
                                            ) -> DataFrame:
   ''' Join input data to reference data on the moiety fields.
   All moiety fields which are not null must be present in the input data.
@@ -179,18 +181,32 @@ def join_on_columns_and_filter_max_moieties(df_input: DataFrame,
       for moiety_col in moiety_join_cols 
     ]
   )
-  df_moiety_matches = df_input.join(df_refdata, on=moiety_conditional)
+  
+  df_input = df_input.cache()
+  df_input.count()
+  df_refdata = df_refdata.cache()
+  df_refdata.count()
+  
+  df_moiety_matches = df_input.join(df_refdata, on=moiety_conditional).cache()
+  df_moiety_matches.count()
+
+  df_moiety_matches_without_never_matches = remove_never_mix_ups(df_moiety_matches, text_col, ref_text_col)
+  df_moiety_matches_without_never_matches_and_say_or_wrong = say_it_or_wrong(df_moiety_matches_without_never_matches, text_col, ref_text_col)
 
   # Count moieties present
-  df_moiety_matches = df_moiety_matches.withColumn(
+  df_moiety_matches_without_never_matches_and_say_or_wrong = df_moiety_matches_without_never_matches_and_say_or_wrong.withColumn(
     '_moiety_count',
     reduce(add, [col(moiety).isNotNull().cast('int') for moiety in ['MOIETY', 'MOIETY_2', 'MOIETY_3', 'MOIETY_4', 'MOIETY_5']])
   )
-
+  
   # We only want the records with the maximum number of moieties per id
   perId = Window.partitionBy(id_col)
-  df_moiety_matches_max = df_moiety_matches.withColumn('_max_count_per_id', F.max('_moiety_count').over(perId)) \
+  df_moiety_matches_max = df_moiety_matches_without_never_matches_and_say_or_wrong.withColumn('_max_count_per_id', F.max('_moiety_count').over(perId)) \
                                            .where(col('_max_count_per_id') == col('_moiety_count')).drop('_moiety_count', '_max_count_per_id')
+
+  del df_input
+  del df_refdata
+  del df_moiety_matches
   
   return df_moiety_matches_max
 
@@ -208,7 +224,8 @@ def entity_match(df_input: DataFrame,
                  id_level_col: str,
                  match_level_col: str,
                  match_datetime_col: str,
-                 ref_id_col: str
+                 ref_id_col: str,
+                 ref_text_col: str
                 ) -> DataFrame:
   ''' Entity matching function.
   Join to the parsed reference data (amp or vmp) on the moiety columns.
@@ -226,10 +243,10 @@ def entity_match(df_input: DataFrame,
   
   moiety_cols = ['MOIETY', 'MOIETY_2', 'MOIETY_3', 'MOIETY_4', 'MOIETY_5', 'SITE', 'DOSEFORM']
   dosage_cols = ['SVN', 'SVU', 'SVN2', 'SVU2', 'SVD', 'SDU', 'SVN_2', 'SVU_2', 'SVD_2', 'SDU_2', 'SVN_3', 'SVU_3']
-            
-  # Join to refdata on moiety cols and filter to max moieties per id
-  df_moiety_matches_max = join_on_columns_and_filter_max_moieties(df_input, moiety_join_cols=moiety_cols, df_refdata=df_refdata, id_col=id_col, text_col=text_col)
 
+  # Join to refdata on moiety cols and filter to max moieties per id
+  df_moiety_matches_max = join_on_columns_and_filter_max_moieties(df_input, moiety_join_cols=moiety_cols, df_refdata=df_refdata, id_col=id_col, text_col=text_col, ref_text_col=ref_text_col).drop(ref_text_col)
+  
   @F.udf(returnType=BooleanType())
   def match_strength_unit(x, dosage_cols):
     strengths_and_units = extract_strength_unit(x, dose_form_list_bc.value)
@@ -241,7 +258,7 @@ def entity_match(df_input: DataFrame,
       )
     else:
       return False
-
+  
   # Filter to records which match the extracted strength and unit
   dosage_cols = F.struct([df_moiety_matches_max[col] for col in dosage_cols])
   df_moiety_matches_max = df_moiety_matches_max.where(match_strength_unit(col(text_col), dosage_cols))
@@ -310,12 +327,12 @@ def partial_entity_match(df_input: DataFrame,
                                    .drop('_apid_long', '_rn')
   
   # Find partial matches at amp level
-  df_amp_non_match = join_on_columns_and_filter_max_moieties(df_input, moiety_cols, df_amp_parsed_dedup, id_col=id_col, text_col=text_col) \
+  df_amp_non_match = join_on_columns_and_filter_max_moieties(df_input, moiety_cols, df_amp_parsed_dedup, id_col=id_col, text_col=text_col, ref_text_col=ref_text_col) \
                                     .withColumn(match_level_col, lit('APID')) \
                                     .select(id_col, original_text_col, form_in_text_col, text_col, *moiety_cols, match_level_col, ref_id_col, ref_text_col)
   
   # Find partial matches at vmp level
-  df_vmp_non_match = join_on_columns_and_filter_max_moieties(df_input, moiety_cols, df_vmp_parsed, id_col=id_col, text_col=text_col) \
+  df_vmp_non_match = join_on_columns_and_filter_max_moieties(df_input, moiety_cols, df_vmp_parsed, id_col=id_col, text_col=text_col, ref_text_col=ref_text_col) \
                                     .withColumn(match_level_col, lit('VPID')) \
                                     .select(id_col, original_text_col, form_in_text_col, text_col, *moiety_cols, match_level_col, ref_id_col, ref_text_col)
 
